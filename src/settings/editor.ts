@@ -7,7 +7,7 @@
 
 export const editor = {
   // The website's GitHub repository.
-  owner: 'cstuart-loomconnect',
+  owner: 'lucacalabrese06',
   repo: 'thepackstation-site',
 
   // Saves go to the preview branch. Publish merges it into the live branch.
