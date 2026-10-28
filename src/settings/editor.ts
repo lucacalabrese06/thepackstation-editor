@@ -15,7 +15,7 @@ export const editor = {
   liveBranch: 'master',
 
   // Shown as "Open the preview" and "View the website".
-  previewUrl: 'https://development.thepackstation-site.pages.dev',
+  previewUrl: 'https://dev.thepackstation.co.uk',
   liveUrl: 'https://thepackstation.co.uk',
 
   // GitHub usernames allowed to sign in. Leave empty to allow anyone who

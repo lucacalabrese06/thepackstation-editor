@@ -87,11 +87,11 @@ This means nothing can go live unless the website's build check passed.
 - Policy: **Allow**, Include → Emails → your address and your friend's.
 - Login method: One-time PIN (email code).
 
-Also lock the **website's preview site**: in the `thepackstation-site` Pages project → Settings → General → **Enable access policy** for preview deployments, using the same email list.
+Also lock the **website's preview site** (the `thepackstation-site-dev` Worker, built from `development`): add a second Access application for `dev.thepackstation.co.uk` with the same email list. In that Worker's **Settings → Domains & Routes**, turn off the `workers.dev` address (or add it to the same Access application) so it can't be used to get round the lock.
 
 ### 5. Check the addresses
 
-In `src/settings/editor.ts`, `previewUrl` must match the website's preview address (Cloudflare shows it on the `development` deployment, normally `https://development.thepackstation-site.pages.dev`).
+In `src/settings/editor.ts`, `previewUrl` must match the website's preview address: `https://dev.thepackstation.co.uk` (the `thepackstation-site-dev` Worker). `liveUrl` is `https://thepackstation.co.uk` (the `thepackstation` Worker, built from `master`).
 
 ## Run it locally
 
