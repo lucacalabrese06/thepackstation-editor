@@ -1,7 +1,14 @@
 {
+  // Runs as a Cloudflare Worker (same as the website).
+  // Build: npm run build · Deploy: npx wrangler deploy
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "thepackstation-editor",
+  "main": "./dist/_worker.js/index.js",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
-  "pages_build_output_dir": "./dist"
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist"
+  },
+  "observability": { "enabled": true }
 }
