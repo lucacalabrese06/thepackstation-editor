@@ -1,0 +1,104 @@
+---
+import Base from '../layouts/Base.astro';
+import { loadThemePage } from '../lib/themePage';
+
+const page = await loadThemePage(Astro);
+---
+<Base title="Colours" section="colours">
+  <div class="head">
+    <div style="display:flex;flex-direction:column;gap:6px"><h1>Colours</h1><p>Brand colours used across the whole website.</p></div>
+    {'pageData' in page && <div class="row"><button class="btn btn-ghost" id="reset" type="button">Undo changes</button><button class="btn btn-primary" id="save" type="button">Save</button></div>}
+  </div>
+  <div id="problems" class="problems" role="alert" hidden></div>
+  {'pageData' in page ? (
+    <>
+      <div class="split">
+        <form class="form" id="cform" novalidate></form>
+        <aside class="preview" aria-label="Preview">
+          <div class="row" style="justify-content:space-between"><span class="plabel">Preview</span>
+            <div class="seg" role="group" aria-label="Preview size"><button type="button" data-device="desktop" aria-pressed="true">Desktop</button><button type="button" data-device="phone" aria-pressed="false">Phone</button></div></div>
+          <div class="tp-wrap"><div class="tp" id="preview"></div></div>
+        </aside>
+      </div>
+      <script type="application/json" id="page-data" set:html={JSON.stringify(page.pageData)}></script>
+    </>
+  ) : <p class="loading-error" role="alert">{page.error}</p>}
+</Base>
+
+<script>
+  import { clone, save, esc, guardUnsaved } from '../scripts/editor';
+  import { themePreview } from '../scripts/themePreview';
+  import type { Theme } from '../settings/types';
+
+  const raw = JSON.parse(document.getElementById('page-data')!.textContent!) as { data: Theme; sha: string; words: Parameters<typeof themePreview>[2] };
+  let t = clone(raw.data);
+  const start = JSON.stringify(t);
+  let device: 'desktop' | 'phone' = 'desktop';
+  guardUnsaved(() => JSON.stringify(t) !== start);
+
+  const labels: Record<string, [string, string]> = {
+    background: ['Page background', 'Behind everything'],
+    surface: ['Cards and panels', 'Boxes on the page'],
+    surfaceRaised: ['Buttons and boxes inside cards', 'Second button, inner boxes'],
+    border: ['Borders', 'Lines around cards and boxes'],
+    text: ['Main text', 'Headings and important text'],
+    textMuted: ['Softer text', 'Paragraphs and labels'],
+    accent: ['Accent', 'Main buttons, highlights and the launch banner'],
+    accentText: ['Text on the accent colour', 'Must stay readable on the accent'],
+    success: ['"Open" colour', 'Open-now labels and ticks'],
+    danger: ['Error colour', 'Messages when something goes wrong'],
+  };
+
+  // Contrast check so text stays readable.
+  const lum = (hex: string) => {
+    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const ratio = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+
+  const form = document.getElementById('cform') as HTMLFormElement;
+  const preview = document.getElementById('preview')!;
+
+  function warnings() {
+    const w: string[] = [];
+    const c = t.colours;
+    if (ratio(c.text, c.background) < 4.5) w.push('Main text is hard to read on the page background.');
+    if (ratio(c.textMuted, c.background) < 4.5) w.push('Softer text is hard to read on the page background.');
+    if (ratio(c.accentText, c.accent) < 4.5) w.push('Text on the accent colour is hard to read.');
+    return w;
+  }
+
+  function render() {
+    form.innerHTML = `<div class="swatches">${Object.entries(labels).map(([k, [name, hint]]) => {
+      const v = (t.colours as unknown as Record<string, string>)[k];
+      return `<label class="swatch" for="c-${k}"><input id="c-${k}" type="color" data-c="${k}" value="${esc(v)}">
+        <span style="display:flex;flex-direction:column;min-width:0"><strong style="font-size:14px">${esc(name)}</strong><span style="font-size:12px;color:var(--muted)">${esc(hint)}</span><span class="code" style="font-size:12px">${esc(v.toUpperCase())}</span></span></label>`;
+    }).join('')}</div><div id="warn"></div>`;
+    update();
+  }
+  function update() {
+    preview.innerHTML = themePreview(t, device, raw.words);
+    preview.style.maxWidth = device === 'phone' ? '300px' : '100%';
+    const w = warnings();
+    document.getElementById('warn')!.innerHTML = w.length ? `<p class="note" style="color:var(--accent)">Heads-up: ${w.map(esc).join(' ')}</p>` : '';
+  }
+
+  form.addEventListener('input', (e) => {
+    const el = e.target as HTMLInputElement;
+    if (!el.dataset.c) return;
+    (t.colours as unknown as Record<string, string>)[el.dataset.c] = el.value.toUpperCase();
+    el.parentElement!.querySelector('.code')!.textContent = el.value.toUpperCase();
+    update();
+  });
+  document.querySelector('.seg')?.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-device]');
+    if (!b) return;
+    device = b.dataset.device as typeof device;
+    document.querySelectorAll('[data-device]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    update();
+  });
+  document.getElementById('reset')?.addEventListener('click', () => { t = clone(raw.data); render(); });
+  document.getElementById('save')?.addEventListener('click', (e) => save('theme', t, raw.sha, 'Updated colours', e.currentTarget as HTMLButtonElement));
+  form.addEventListener('submit', (e) => e.preventDefault());
+  render();
+</script>

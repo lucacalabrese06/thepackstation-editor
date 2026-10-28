@@ -1,0 +1,132 @@
+---
+import Base from '../layouts/Base.astro';
+import { load } from '../lib/server';
+import { wordingTabs, humanise } from '../lib/wording';
+import type { Business, Content } from '../settings/types';
+
+const content = await load<Content>(Astro, 'content');
+const business = await load<Business>(Astro, 'business');
+const error = 'error' in content ? content.error : 'error' in business ? business.error : '';
+
+// Add any wording fields that exist in content.json but aren't labelled yet.
+const tabs = 'data' in content
+  ? wordingTabs.map((tab) => {
+      const group = tab.path.reduce<Record<string, unknown>>((o, k) => (o?.[k] ?? {}) as Record<string, unknown>, content.data as unknown as Record<string, unknown>);
+      const known = new Set(tab.fields.map((f) => f.key));
+      const extra = tab.path.length
+        ? Object.keys(group).filter((k) => !known.has(k) && typeof group[k] === 'string').map((k) => ({ key: k, label: humanise(k) }))
+        : [];
+      return { ...tab, fields: [...tab.fields.filter((f) => typeof group[f.key] === 'string'), ...extra] };
+    })
+  : [];
+
+const pageData = !error && 'data' in content && 'data' in business
+  ? { file: 'content', data: content.data, sha: content.sha, tabs, business: business.data }
+  : null;
+---
+<Base title="Page wording" section="wording">
+  <div class="head">
+    <div style="display:flex;flex-direction:column;gap:6px"><h1>Page wording</h1><p>Every heading, paragraph and button on the website. Pick a page to edit.</p></div>
+    {pageData && <button class="btn btn-primary" id="save" type="button">Save</button>}
+  </div>
+  <div id="problems" class="problems" role="alert" hidden></div>
+  {pageData ? (
+    <>
+      <div class="tabs" role="tablist" aria-label="Pages" id="tabs"></div>
+      <div class="split">
+        <form class="form" id="wform" novalidate></form>
+        <aside class="preview" aria-label="Preview"><span class="plabel">Preview</span><div id="wpreview"></div><span class="note">Updates as you type. Words in {'{'}curly brackets{'}'} fill in from Business details.</span></aside>
+      </div>
+      <script type="application/json" id="page-data" set:html={JSON.stringify(pageData)}></script>
+    </>
+  ) : <p class="loading-error" role="alert">{error}</p>}
+</Base>
+
+<script>
+  import { clone, save, esc, fill, guardUnsaved } from '../scripts/editor';
+  import type { Business } from '../settings/types';
+  import type { WordingTab } from '../lib/wording';
+
+  const raw = JSON.parse(document.getElementById('page-data')!.textContent!) as { data: Record<string, unknown>; sha: string; tabs: WordingTab[]; business: Business };
+  const content = clone(raw.data);
+  const start = JSON.stringify(content);
+  const changedTabs = new Set<string>();
+  guardUnsaved(() => JSON.stringify(content) !== start);
+
+  const values: Record<string, string> = {
+    businessName: raw.business.name,
+    email: raw.business.email,
+    responseTime: raw.business.responseTime,
+    supportHours: raw.business.supportHours,
+    launchWhen: raw.business.launchWhen,
+    launchMessage: raw.business.launchMessage,
+    count: '3 machines',
+    name: 'Riverside Arcade',
+    town: 'Reading',
+  };
+  const params = new URLSearchParams(location.search);
+  let tabId = raw.tabs.some((t) => t.id === params.get('tab')) ? params.get('tab')! : raw.tabs[0].id;
+
+  const group = (tab: WordingTab) => tab.path.reduce<Record<string, unknown>>((o, k) => o[k] as Record<string, unknown>, content);
+  const get = (tab: WordingTab, key: string) => String(group(tab)[key] ?? '');
+
+  const tabsEl = document.getElementById('tabs')!;
+  const form = document.getElementById('wform') as HTMLFormElement;
+  const preview = document.getElementById('wpreview')!;
+
+  function render() {
+    const tab = raw.tabs.find((t) => t.id === tabId)!;
+    tabsEl.innerHTML = raw.tabs.map((t) => `<button class="tab" type="button" role="tab" aria-selected="${t.id === tabId}" data-tab="${t.id}">${esc(t.label)}${changedTabs.has(t.id) ? ' •' : ''}</button>`).join('');
+    form.innerHTML = `<h2>${esc(tab.label)}</h2>` + tab.fields.map((f) => {
+      const v = get(tab, f.key);
+      const tokens = [...v.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
+      return `<div class="field"><label for="w-${f.key}">${esc(f.label)}</label>
+        ${f.long ? `<textarea id="w-${f.key}" class="input" data-w="${f.key}" rows="3">${esc(v)}</textarea>` : `<input id="w-${f.key}" class="input" data-w="${f.key}" value="${esc(v)}">`}
+        ${f.hint ? `<span class="hint">${esc(f.hint)}</span>` : ''}
+        ${tokens.length ? `<span class="hint">Fills in automatically: ${tokens.map((t) => `<span class="chip">{${esc(t)}}</span> → ${esc(values[t] ?? '?')}`).join(' ')}</span>` : ''}</div>`;
+    }).join('');
+    renderPreview();
+  }
+
+  function renderPreview() {
+    const tab = raw.tabs.find((t) => t.id === tabId)!;
+    const t = (k: string) => esc(fill(get(tab, k), values));
+    let body = '';
+    if (tab.id === 'home') body = `<span class="site-pill">${t('comingSoonBadge')} · 2026</span><div class="site-hero">${t('headline')}<br><span class="foil">${t('headlineHighlight')}</span></div><div class="site-text">${t('intro')}</div><div class="row" style="gap:8px"><span class="site-btn">${t('findButton')}</span></div><div class="site-h" style="font-size:18px;margin-top:8px">${t('stockHeading')}</div><div class="site-text">${t('stockIntro')}</div>`;
+    else if (tab.id === 'locations') body = `<span class="plabel">${t('label')}</span><div class="site-hero">${t('heading')}</div><div class="site-text">${t('introNoMachines')}</div><div class="row" style="gap:8px"><span class="site-pill" style="color:var(--ok)">${t('statusOpen')}</span><span class="site-pill" style="color:var(--accent)">${t('statusSoon')}</span></div><div class="site-h" style="font-size:18px">${t('panelHeading')}</div><div class="site-text">${t('panelText')}</div>`;
+    else if (tab.id === 'machinePage') body = `<span class="site-text">← ${t('backLink')}</span><div class="site-h">Riverside Arcade, Reading</div><dl class="site-dl"><dt>${t('postcodeLabel')}</dt><dd>RG1 2AG</dd><dt>${t('paymentLabel')}</dt><dd>Card</dd></dl><div class="row" style="gap:8px"><span class="site-btn">${t('directionsButton')}</span><span class="site-btn ghost">${t('reportButton')}</span></div>`;
+    else if (tab.id === 'gallery') body = `<span class="plabel">${t('label')}</span><div class="site-hero">${t('heading')}</div><div class="site-text">${t('intro')}</div><span class="site-pill">${t('photoSoonBadge')}</span>`;
+    else if (tab.id === 'support') body = `<span class="plabel">${t('label')}</span><div class="site-hero">${t('heading')}</div><div class="site-text">${t('intro')}</div><dl class="site-dl"><dt>${t('emailCardHeading')}</dt><dd>${esc(values.email)}</dd><dt>${t('hoursCardHeading')}</dt><dd>${t('hoursCardText')}</dd></dl>`;
+    else if (tab.id === 'contactForm') body = `<div class="site-h" style="font-size:18px">${t('heading')}</div><dl class="site-dl"><dt>${t('nameLabel')}</dt><dd>&nbsp;</dd><dt>${t('emailLabel')}</dt><dd>&nbsp;</dd><dt>${t('topicLabel')}</dt><dd>&nbsp;</dd><dt>${t('messageLabel')}</dt><dd>&nbsp;</dd></dl><span class="site-btn">${t('sendButton')}</span><span class="site-text">${t('note')}</span>`;
+    else if (tab.id === 'thanks' || tab.id === 'notFound') body = `<div class="site-hero">${t('heading')}</div><div class="site-text">${t('text')}</div><div class="row" style="gap:8px"><span class="site-btn ghost">${t('supportButton')}</span><span class="site-btn">${t('homeButton')}</span></div>`;
+    else if (tab.id === 'banner') body = `<div class="site-banner">${t('text')} <u>${t('followButton')}</u></div>`;
+    else if (tab.id === 'panel') body = `<div class="row" style="gap:8px"><span class="site-btn">${t('followButton')}</span><span class="site-btn ghost">${t('hostButton')}</span></div>`;
+    else body = `<div class="site-text" style="font-size:11.5px">© ${new Date().getFullYear()} ${esc(values.businessName)}</div><div class="site-text" style="font-size:11.5px">${t('footerNotice')}</div><span class="plabel">Browser tab</span><div class="tabmock">${t('homeBrowserTitle')}</div>`;
+    preview.innerHTML = `<div class="site"><div class="site-body">${body}</div></div>`;
+  }
+
+  tabsEl.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>('[data-tab]');
+    if (!b) return;
+    tabId = b.dataset.tab!;
+    history.replaceState(null, '', `?tab=${tabId}`);
+    render();
+  });
+  form.addEventListener('input', (e) => {
+    const el = e.target as HTMLInputElement;
+    if (!el.dataset.w) return;
+    const tab = raw.tabs.find((t) => t.id === tabId)!;
+    group(tab)[el.dataset.w] = el.value;
+    if (!changedTabs.has(tab.id)) { changedTabs.add(tab.id); tabsEl.querySelector(`[data-tab="${tab.id}"]`)!.textContent += ' •'; }
+    renderPreview();
+  });
+  form.addEventListener('submit', (e) => e.preventDefault());
+
+  document.getElementById('save')?.addEventListener('click', (e) => {
+    const names = raw.tabs.filter((t) => changedTabs.has(t.id)).map((t) => t.label.toLowerCase());
+    const summary = names.length ? `Updated wording: ${names.join(', ')}` : 'Updated wording';
+    save('content', content, raw.sha, summary, e.currentTarget as HTMLButtonElement);
+  });
+
+  render();
+</script>

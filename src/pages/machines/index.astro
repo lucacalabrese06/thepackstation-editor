@@ -1,0 +1,56 @@
+---
+import Base from '../../layouts/Base.astro';
+import Icon from '../../components/Icon.astro';
+import { load } from '../../lib/server';
+import type { Machine } from '../../settings/types';
+
+const file = await load<{ machines: Machine[]; comingSoonAreas: string[] }>(Astro, 'machines');
+const machines = 'data' in file ? file.data.machines : [];
+---
+<Base title="Machines" section="machines">
+  <div class="head">
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <h1>Machines</h1>
+      <p>Each machine gets its own page on the website, with opening hours and directions.</p>
+    </div>
+    <a class="btn btn-primary" href="/machines/new"><Icon name="plus" />Add machine</a>
+  </div>
+
+  {'error' in file ? (
+    <p class="loading-error" role="alert">{file.error}</p>
+  ) : machines.length === 0 ? (
+    <div class="table"><div class="empty">
+      <Icon name="machines" size={40} />
+      <strong style="color:var(--text);font-size:17px">No machines yet</strong>
+      <span>While this list is empty, the Locations page on the website says "Coming soon".</span>
+      <a class="btn btn-primary" href="/machines/new"><Icon name="plus" />Add your first machine</a>
+    </div></div>
+  ) : (
+    <>
+      <label class="sr" for="search">Search machines</label>
+      <input id="search" class="input search" type="search" placeholder="Search by name, town or code" />
+      <div class="table">
+        <div class="trow thead"><span>Code</span><span>Name</span><span>Town</span><span>Status</span><span></span></div>
+        {machines.map((m) => (
+          <div class="trow" data-search={`${m.code} ${m.name} ${m.town}`.toLowerCase()}>
+            <span class="code">{m.code}</span>
+            <span style="font-weight:600">{m.name}</span>
+            <span style="color:var(--soft)">{m.town}</span>
+            <span class={`status ${m.status === 'live' ? 'live' : 'soon'}`}>{m.status === 'live' ? 'Open now' : 'Opening soon'}</span>
+            <a href={`/machines/${encodeURIComponent(m.code.toLowerCase())}`} style="font-weight:600;font-size:14px">Edit</a>
+          </div>
+        ))}
+      </div>
+    </>
+  )}
+</Base>
+
+<script>
+  const search = document.querySelector<HTMLInputElement>('#search');
+  search?.addEventListener('input', () => {
+    const q = search.value.trim().toLowerCase();
+    document.querySelectorAll<HTMLElement>('.trow[data-search]').forEach((row) => {
+      row.hidden = Boolean(q) && !(row.dataset.search ?? '').includes(q);
+    });
+  });
+</script>

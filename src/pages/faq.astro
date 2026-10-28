@@ -1,0 +1,51 @@
+---
+import Base from '../layouts/Base.astro';
+import { load } from '../lib/server';
+import type { Faq } from '../settings/types';
+
+const file = await load<{ faq: Faq[]; contactTopics: string[] }>(Astro, 'faq');
+const pageData = 'data' in file ? { data: file.data, sha: file.sha } : null;
+---
+<Base title="FAQs" section="faq">
+  <div class="head">
+    <div style="display:flex;flex-direction:column;gap:6px"><h1>FAQs</h1><p>Questions on the Support page, in this order, and the topics on the contact form.</p></div>
+    {pageData && <button class="btn btn-primary" id="save" type="button">Save</button>}
+  </div>
+  <div id="problems" class="problems" role="alert" hidden></div>
+  {pageData ? (
+    <>
+      <form class="form" id="faq-list" novalidate style="max-width:820px"></form>
+      <form class="form" id="topic-list" novalidate style="max-width:820px"></form>
+      <script type="application/json" id="page-data" set:html={JSON.stringify(pageData)}></script>
+    </>
+  ) : <p class="loading-error" role="alert">{'error' in file && file.error}</p>}
+</Base>
+
+<script>
+  import { clone, save, guardUnsaved } from '../scripts/editor';
+  import { listEditor, wordListEditor } from '../scripts/lists';
+  import type { Faq } from '../settings/types';
+
+  const raw = JSON.parse(document.getElementById('page-data')!.textContent!) as { data: { faq: Faq[]; contactTopics: string[] }; sha: string };
+  const data = clone(raw.data);
+  const start = JSON.stringify(data);
+  guardUnsaved(() => JSON.stringify(data) !== start);
+
+  listEditor(document.getElementById('faq-list')!, data.faq as unknown as Record<string, string>[], {
+    id: 'faq', title: 'Questions and answers', itemName: 'question',
+    fields: [{ key: 'q', label: 'Question' }, { key: 'a', label: 'Answer', long: true }],
+    blank: () => ({ q: '', a: '' }),
+  }, () => {});
+
+  wordListEditor(document.getElementById('topic-list')!, data.contactTopics, {
+    id: 'topics', title: 'Contact form topics', itemName: 'topic',
+    hint: 'The first topic is picked by default. Topics mentioning "host" or "venue", "report", or "purchase" are linked from buttons on the site.',
+  }, () => {});
+
+  for (const f of document.querySelectorAll('form')) f.addEventListener('submit', (e) => e.preventDefault());
+  document.getElementById('save')?.addEventListener('click', (e) => {
+    data.faq = data.faq.map((x) => ({ q: x.q.trim(), a: x.a.trim() }));
+    data.contactTopics = data.contactTopics.map((t) => t.trim()).filter(Boolean);
+    save('faq', data, raw.sha, 'Updated FAQs', e.currentTarget as HTMLButtonElement);
+  });
+</script>

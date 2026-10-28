@@ -1,0 +1,20 @@
+{
+  "name": "thepackstation-editor",
+  "type": "module",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The Pack Station editor: change the website without touching code.",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "wrangler pages dev ./dist",
+    "test": "node --experimental-strip-types --no-warnings --test tests/core.test.mjs"
+  },
+  "dependencies": {
+    "@astrojs/cloudflare": "^12.0.0",
+    "astro": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=22.6"
+  }
+}

@@ -1,0 +1,172 @@
+---
+// Add a machine (/machines/new) or edit one (/machines/tps-01).
+import Base from '../../layouts/Base.astro';
+import { load } from '../../lib/server';
+import { editor } from '../../settings/editor';
+import type { Machine } from '../../settings/types';
+
+const code = (Astro.params.code ?? '').toLowerCase();
+const file = await load<{ machines: Machine[]; comingSoonAreas: string[] }>(Astro, 'machines');
+const isNew = code === 'new';
+const index = 'data' in file ? file.data.machines.findIndex((m) => m.code.toLowerCase() === code) : -1;
+if ('data' in file && !isNew && index === -1) return Astro.redirect('/machines');
+const title = isNew ? 'Add a machine' : `Edit ${'data' in file ? file.data.machines[index].name : 'machine'}`;
+const pageData = 'data' in file ? { file: 'machines', data: file.data, sha: file.sha, index: isNew ? null : index, siteBase: editor.previewUrl } : null;
+---
+<Base title={title} section="machines">
+  <a class="back" href="/machines">← Machines</a>
+  {pageData ? (
+    <>
+      <div class="head">
+        <h1>{title}</h1>
+        <div class="row">
+          {!isNew && <button class="btn btn-ghost" id="delete" type="button" style="color:var(--bad)">Delete</button>}
+          <a class="btn btn-ghost" href="/machines">Cancel</a>
+          <button class="btn btn-primary" id="save" type="button">Save</button>
+        </div>
+      </div>
+      <div id="problems" class="problems" role="alert" hidden></div>
+      <div id="confirm-delete" class="problems" hidden>
+        <strong>Delete this machine?</strong>
+        <span style="font-size:14px;color:#F2D5DA">Its page will be removed from the website when you publish.</span>
+        <div class="row"><button class="btn btn-ghost" id="delete-no" type="button">Keep it</button><button class="btn btn-primary" id="delete-yes" type="button" style="background:var(--bad)">Yes, delete</button></div>
+      </div>
+      <div class="split">
+        <form class="form" id="mform" novalidate></form>
+        <aside class="preview" aria-label="Preview">
+          <span class="plabel">Preview of the machine page</span>
+          <div id="mpreview"></div>
+          <span class="note">Updates as you type.</span>
+        </aside>
+      </div>
+      <script type="application/json" id="page-data" set:html={JSON.stringify(pageData)}></script>
+    </>
+  ) : (
+    <p class="loading-error" role="alert">{'error' in file && file.error}</p>
+  )}
+</Base>
+
+<script>
+  import { pageData, clone, save, uploadImage, previewUrl, esc, guardUnsaved, showProblems, type PageData } from '../../scripts/editor';
+  import type { Machine } from '../../settings/types';
+
+  type MachinesFile = { machines: Machine[]; comingSoonAreas: string[] };
+  const page = pageData<MachinesFile>() as PageData<MachinesFile> & { index: number | null; siteBase: string };
+  const sitePhoto = (path: string) => (path ? page.siteBase + path : '');
+  const all = clone(page.data);
+  const blank: Machine = { code: '', status: 'live', name: '', venue: '', town: '', postcode: '', hours: [{ days: 'Monday to Saturday', times: '9am to 8pm' }], payment: 'Card, Apple Pay and Google Pay', photo: '', mapLink: '' };
+  const m: Machine = page.index === null ? clone(blank) : clone(all.machines[page.index]);
+  const original = JSON.stringify(m);
+  let photoPreview = '';
+  guardUnsaved(() => JSON.stringify(m) !== original);
+
+  const form = document.getElementById('mform') as HTMLFormElement;
+  const preview = document.getElementById('mpreview')!;
+
+  const field = (key: keyof Machine, label: string, opts: { hint?: string; placeholder?: string; mono?: boolean } = {}) => `
+    <div class="field"><label for="f-${key}">${label}</label>
+      <input id="f-${key}" class="input${opts.mono ? ' mono' : ''}" data-f="${key}" value="${esc(m[key])}" placeholder="${esc(opts.placeholder ?? '')}">
+      ${opts.hint ? `<span class="hint">${opts.hint}</span>` : ''}</div>`;
+
+  function render() {
+    const hours = m.hours.map((h, i) => `
+      <div class="hours-row">
+        <input class="input" aria-label="Days, line ${i + 1}" data-hour="${i}" data-part="days" value="${esc(h.days)}" placeholder="e.g. Monday to Friday">
+        <input class="input" aria-label="Times, line ${i + 1}" data-hour="${i}" data-part="times" value="${esc(h.times)}" placeholder="e.g. 9am to 8pm">
+        <button type="button" class="icon-btn" data-delhour="${i}" aria-label="Remove line ${i + 1}" ${m.hours.length === 1 ? 'disabled' : ''}>×</button>
+      </div>`).join('');
+    const photo = photoPreview || sitePhoto(m.photo ?? '');
+    form.innerHTML = `
+      <div class="grid2">
+        ${field('code', 'Machine code', { hint: 'As printed on the side panel', placeholder: 'TPS-01', mono: true })}
+        <div class="field"><label for="f-status">Status</label>
+          <select id="f-status" class="input" data-f="status">
+            <option value="live" ${m.status === 'live' ? 'selected' : ''}>Open now</option>
+            <option value="coming-soon" ${m.status !== 'live' ? 'selected' : ''}>Opening soon</option>
+          </select></div>
+      </div>
+      ${field('name', 'Name', { placeholder: 'e.g. Riverside Arcade' })}
+      ${field('venue', 'Where in the venue', { placeholder: 'e.g. Ground floor, next to the food court' })}
+      <div class="grid2">${field('town', 'Town', { placeholder: 'e.g. Reading' })}${field('postcode', 'Postcode', { placeholder: 'e.g. RG1 2AG' })}</div>
+      <fieldset style="border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:8px">
+        <legend class="legend" style="margin-bottom:8px">Opening hours</legend>${hours}
+        <button type="button" class="dashed" data-act="addhour">+ Add another line</button>
+      </fieldset>
+      ${field('payment', 'Payment')}
+      <div class="field"><span class="legend">Photo</span>
+        <label class="drop" for="f-photo">
+          ${photo ? `<img src="${esc(photo)}" alt="Machine photo">` : '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></svg>'}
+          <span style="display:flex;flex-direction:column;gap:4px;font-size:14px">
+            <span><span style="color:var(--accent);font-weight:600" id="photo-label">${photo ? 'Change photo' : 'Choose a photo'}</span> or drag one here</span>
+            <span class="hint" style="font-size:12.5px;color:var(--muted)">Straight from your phone is fine. It's resized automatically.</span>
+          </span>
+        </label>
+        <input id="f-photo" type="file" accept="image/*" class="sr">
+        ${photo ? '<button type="button" class="link-btn" style="align-self:flex-start" data-act="removephoto">Remove photo</button>' : ''}
+      </div>
+      ${field('mapLink', 'Google Maps link <span style="font-weight:400;color:var(--muted)">(optional)</span>', { placeholder: 'Paste a share link from Google Maps' })}`;
+    renderPreview();
+  }
+
+  function renderPreview() {
+    const photo = photoPreview || sitePhoto(m.photo ?? '');
+    preview.innerHTML = `<div class="site"><div class="site-body">
+      ${photo ? `<img class="site-photo" src="${esc(photo)}" alt="">` : ''}
+      <div class="row" style="gap:8px"><span class="code" style="font-size:12px">${esc((m.code || 'TPS-00').toUpperCase())}</span>
+        <span class="site-pill" style="color:${m.status === 'live' ? 'var(--ok)' : 'var(--accent)'}">${m.status === 'live' ? 'Open now' : 'Opening soon'}</span></div>
+      <div class="site-h">${esc(m.name || 'Machine name')}${m.town ? ', ' + esc(m.town) : ''}</div>
+      <div class="site-text">${esc(m.venue || 'Where in the venue')}</div>
+      <dl class="site-dl">${m.hours.map((h) => `<dt>${esc(h.days || 'Days')}</dt><dd>${esc(h.times || 'Times')}</dd>`).join('')}
+        <dt>Postcode</dt><dd style="font-family:var(--f-mono)">${esc(m.postcode || '—')}</dd><dt>Payment</dt><dd>${esc(m.payment)}</dd></dl>
+      <span class="site-btn">Get directions</span></div></div>`;
+  }
+
+  form.addEventListener('input', (e) => {
+    const t = e.target as HTMLInputElement;
+    if (t.dataset.f) (m as unknown as Record<string, string>)[t.dataset.f] = t.value;
+    if (t.dataset.hour) m.hours[Number(t.dataset.hour)][t.dataset.part as 'days' | 'times'] = t.value;
+    renderPreview();
+  });
+  form.addEventListener('click', (e) => {
+    const t = (e.target as HTMLElement).closest<HTMLElement>('[data-act],[data-delhour]');
+    if (!t) return;
+    if (t.dataset.delhour) m.hours.splice(Number(t.dataset.delhour), 1);
+    if (t.dataset.act === 'addhour') m.hours.push({ days: '', times: '' });
+    if (t.dataset.act === 'removephoto') { m.photo = ''; photoPreview = ''; }
+    render();
+  });
+  form.addEventListener('change', async (e) => {
+    const t = e.target as HTMLInputElement;
+    if (t.id !== 'f-photo' || !t.files?.[0]) return;
+    const fileIn = t.files[0];
+    photoPreview = previewUrl(fileIn);
+    render();
+    const label = document.getElementById('photo-label');
+    if (label) label.textContent = 'Uploading…';
+    const path = await uploadImage(fileIn, 'machine', m.code || m.name || 'machine');
+    if (path) m.photo = path; else photoPreview = '';
+    render();
+  });
+  form.addEventListener('submit', (e) => e.preventDefault());
+
+  document.getElementById('save')?.addEventListener('click', (e) => {
+    m.code = m.code.trim().toUpperCase();
+    for (const k of ['name', 'venue', 'town', 'postcode', 'payment', 'mapLink'] as const) m[k] = (m[k] ?? '').trim();
+    m.hours = m.hours.map((h) => ({ days: h.days.trim(), times: h.times.trim() }));
+    const next = clone(all);
+    if (page.index === null) next.machines.push(m); else next.machines[page.index] = m;
+    const summary = `${page.index === null ? 'Added' : 'Updated'} machine ${m.code || '(no code)'}${m.name ? `, ${m.name}` : ''}`;
+    save('machines', next, page.sha, summary, e.currentTarget as HTMLButtonElement);
+  });
+
+  const confirmBox = document.getElementById('confirm-delete')!;
+  document.getElementById('delete')?.addEventListener('click', () => { showProblems([]); confirmBox.hidden = false; confirmBox.scrollIntoView({ block: 'center' }); });
+  document.getElementById('delete-no')?.addEventListener('click', () => { confirmBox.hidden = true; });
+  document.getElementById('delete-yes')?.addEventListener('click', (e) => {
+    const next = clone(all);
+    const removed = next.machines.splice(page.index!, 1)[0];
+    save('machines', next, page.sha, `Removed machine ${removed.code}, ${removed.name}`, e.currentTarget as HTMLButtonElement);
+  });
+
+  render();
+</script>

@@ -1,0 +1,76 @@
+---
+import Base from '../layouts/Base.astro';
+import { load } from '../lib/server';
+import type { StockItem, Point } from '../settings/types';
+
+const stock = await load<{ stock: StockItem[]; promises: Point[]; steps: Point[] }>(Astro, 'stock');
+const machines = await load<{ machines: unknown[]; comingSoonAreas: string[] }>(Astro, 'machines');
+const error = 'error' in stock ? stock.error : 'error' in machines ? machines.error : '';
+const pageData = !error && 'data' in stock && 'data' in machines
+  ? { stock: { data: stock.data, sha: stock.sha }, machines: { data: machines.data, sha: machines.sha } }
+  : null;
+---
+<Base title="What we stock" section="stock">
+  <div class="head">
+    <div style="display:flex;flex-direction:column;gap:6px"><h1>What we stock</h1><p>The product tiles, promises and "How it works" steps on the home page.</p></div>
+    {pageData && <button class="btn btn-primary" id="save" type="button">Save</button>}
+  </div>
+  <div id="problems" class="problems" role="alert" hidden></div>
+  {pageData ? (
+    <>
+      <form class="form" id="stock-list" novalidate style="max-width:820px"></form>
+      <form class="form" id="promise-list" novalidate style="max-width:820px"></form>
+      <form class="form" id="step-list" novalidate style="max-width:820px"></form>
+      <form class="form" id="area-list" novalidate style="max-width:820px"></form>
+      <script type="application/json" id="page-data" set:html={JSON.stringify(pageData)}></script>
+    </>
+  ) : <p class="loading-error" role="alert">{error}</p>}
+</Base>
+
+<script>
+  import { clone, saveMany, guardUnsaved } from '../scripts/editor';
+  import { listEditor, wordListEditor } from '../scripts/lists';
+  import type { StockItem, Point } from '../settings/types';
+
+  const raw = JSON.parse(document.getElementById('page-data')!.textContent!) as {
+    stock: { data: { stock: StockItem[]; promises: Point[]; steps: Point[] }; sha: string };
+    machines: { data: { machines: unknown[]; comingSoonAreas: string[] }; sha: string };
+  };
+  const s = clone(raw.stock.data);
+  const m = clone(raw.machines.data);
+  const startS = JSON.stringify(s);
+  const startM = JSON.stringify(m);
+  guardUnsaved(() => JSON.stringify(s) !== startS || JSON.stringify(m) !== startM);
+
+  const icons: [string, string][] = [['pack', 'Booster pack'], ['layers', 'Stack of packs'], ['box', 'Box'], ['gift', 'Gift'], ['star', 'Star'], ['card', 'Card']];
+  const pointFields = [{ key: 'title', label: 'Title' }, { key: 'detail', label: 'Detail', long: true }];
+
+  listEditor(document.getElementById('stock-list')!, s.stock as unknown as Record<string, string>[], {
+    id: 'stock', title: 'Product tiles', itemName: 'product',
+    fields: [{ key: 'name', label: 'Name' }, { key: 'detail', label: 'Short description', long: true }, { key: 'tag', label: 'Label on the tile' }, { key: 'icon', label: 'Icon', options: icons }],
+    blank: () => ({ name: '', detail: '', tag: '', icon: 'pack' }), max: 8,
+  }, () => {});
+  listEditor(document.getElementById('promise-list')!, s.promises as unknown as Record<string, string>[], {
+    id: 'promises', title: 'Our promises', itemName: 'promise', fields: pointFields, blank: () => ({ title: '', detail: '' }), max: 6,
+  }, () => {});
+  listEditor(document.getElementById('step-list')!, s.steps as unknown as Record<string, string>[], {
+    id: 'steps', title: 'How it works', itemName: 'step', fields: pointFields, blank: () => ({ title: '', detail: '' }), max: 6,
+  }, () => {});
+  wordListEditor(document.getElementById('area-list')!, m.comingSoonAreas, {
+    id: 'areas', title: "Towns we're talking to venues in", itemName: 'town',
+    hint: 'Shown on the Locations page while you have no open machines. Leave empty to hide.',
+  }, () => {});
+
+  for (const f of document.querySelectorAll('form')) f.addEventListener('submit', (e) => e.preventDefault());
+  document.getElementById('save')?.addEventListener('click', (e) => {
+    m.comingSoonAreas = m.comingSoonAreas.map((t) => t.trim()).filter(Boolean);
+    saveMany(
+      [
+        { file: 'stock', data: s, sha: raw.stock.sha, changed: JSON.stringify(s) !== startS },
+        { file: 'machines', data: m, sha: raw.machines.sha, changed: JSON.stringify(m) !== startM },
+      ],
+      'Updated what we stock',
+      e.currentTarget as HTMLButtonElement,
+    );
+  });
+</script>

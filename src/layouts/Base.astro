@@ -1,0 +1,68 @@
+---
+// Editor page shell: sidebar of sections, signed-in person, main area.
+import '../styles/global.css';
+import Logo from '../components/Logo.astro';
+import Icon from '../components/Icon.astro';
+import { editor } from '../settings/editor';
+
+interface Props {
+  title: string;
+  section?: string;
+}
+const { title, section } = Astro.props;
+const user = Astro.locals.user;
+const nav = [
+  { key: 'business', label: 'Business details', href: '/business' },
+  { key: 'wording', label: 'Page wording', href: '/wording' },
+  { key: 'machines', label: 'Machines', href: '/machines' },
+  { key: 'stock', label: 'What we stock', href: '/stock' },
+  { key: 'faq', label: 'FAQs', href: '/faq' },
+  { key: 'menus', label: 'Menus and links', href: '/menus' },
+  { key: 'colours', label: 'Colours', href: '/colours' },
+  { key: 'type', label: 'Fonts and sizes', href: '/fonts' },
+  { key: 'publish', label: 'Publish', href: '/publish' },
+] as const;
+---
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>{title} · Pack Station editor</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body>
+    <div id="root">
+      {user ? (
+        <div class="app">
+          <nav class="side" aria-label="Editor sections">
+            <div class="side-brand"><Logo /><span>Pack Station editor</span></div>
+            {nav.map((n) => (
+              <a class="nav" href={n.href} aria-current={section === n.key ? 'page' : undefined}><Icon name={n.key} />{n.label}</a>
+            ))}
+            <div class="side-foot">
+              <a href={editor.liveUrl} target="_blank" rel="noopener">View the website</a>
+              <a href={editor.previewUrl} target="_blank" rel="noopener">Open the preview site</a>
+              <span class="whoami">{user.avatar && <img class="avatar" src={user.avatar} alt="" />}{user.name}</span>
+              <form method="post" action="/api/logout"><button class="link-btn" type="submit">Sign out</button></form>
+            </div>
+          </nav>
+          <main class="main" id="main">
+            <slot />
+          </main>
+        </div>
+      ) : (
+        <slot />
+      )}
+    </div>
+  </body>
+</html>
+
+<style is:global>
+  .side a.nav { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 42px; padding: 0 12px; border-radius: 10px; color: var(--soft); text-decoration: none; font-size: 14px; }
+  .side a.nav:hover { background: #1e1e27; }
+  .side a.nav[aria-current='page'] { background: var(--active); color: var(--accent); font-weight: 600; }
+  .side a.nav svg { width: 18px; height: 18px; flex: none; opacity: 0.85; }
+  @media (max-width: 720px) { .side a.nav { width: auto; white-space: nowrap; flex: none; } }
+</style>

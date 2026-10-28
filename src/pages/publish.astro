@@ -1,0 +1,108 @@
+---
+import Base from '../layouts/Base.astro';
+import Icon from '../components/Icon.astro';
+import { editor } from '../settings/editor';
+import { explain } from '../lib/server';
+import type { PendingChange, CheckState } from '../lib/github';
+
+const gh = Astro.locals.gh!;
+const saved = Astro.url.searchParams.get('saved');
+const published = Astro.url.searchParams.has('published');
+
+let pending: PendingChange[] = [];
+let check: CheckState = 'none';
+let error = '';
+try {
+  [pending, check] = await Promise.all([gh.pending(editor.liveBranch, editor.previewBranch), gh.checkState(editor.previewBranch)]);
+} catch (e) {
+  error = explain(e).message;
+}
+
+const checkText: Record<CheckState, string> = {
+  passed: 'Build check passed',
+  running: 'Build check running…',
+  failed: 'Build check failed',
+  none: 'Build check not started yet',
+};
+const when = (iso: string) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
+const canPublish = pending.length > 0 && check === 'passed';
+---
+<Base title="Publish" section="publish">
+  {saved && (
+    <div class="toast" role="status">
+      <span class="tick"><Icon name="check" /></span>
+      <div style="flex:1 1 280px;min-width:0;display:flex;flex-direction:column;gap:4px">
+        <strong style="font-size:17px">Saved: {saved}</strong>
+        <span style="font-size:14px;color:#C9D9D0">Your change is on the preview site in about 2 minutes. The live website hasn't changed yet.</span>
+      </div>
+    </div>
+  )}
+  {published && (
+    <div class="toast live" role="status">
+      <span class="tick"><Icon name="publish" /></span>
+      <div style="flex:1 1 280px;min-width:0;display:flex;flex-direction:column;gap:4px">
+        <strong style="font-size:17px">Published</strong>
+        <span style="font-size:14px;color:#E6DDB8">{editor.liveUrl.replace(/^https:\/\//, '')} updates in about 2 minutes.</span>
+      </div>
+    </div>
+  )}
+
+  <div class="head"><div style="display:flex;flex-direction:column;gap:6px"><h1>Publish</h1><p>Check your changes on the preview site, then put them live.</p></div></div>
+  <div id="problems" class="problems" role="alert" hidden></div>
+
+  {error ? <p class="loading-error" role="alert">{error}</p> : (
+    <>
+      <div class="cards">
+        <div class={`card ${pending.length ? '' : 'done'}`}>
+          <span class="step">Step 1</span>
+          <h2>Check it on the preview site</h2>
+          <p>A private copy of the website with your changes. Changes take about 2 minutes to appear.</p>
+          <span class={`pill-state ${check}`} style="align-self:flex-start">{checkText[check]}</span>
+          <a class="btn btn-ghost" style="align-self:flex-start" href={editor.previewUrl} target="_blank" rel="noopener">Open the preview</a>
+        </div>
+        <div class={`card ${pending.length ? '' : 'done'}`}>
+          <span class="step">Step 2</span>
+          <h2>Put it live</h2>
+          {pending.length === 0 ? (
+            <><p>All changes are live. Nothing waiting.</p><span class="status live">Up to date</span></>
+          ) : (
+            <>
+              <p>
+                {check === 'passed' && `${pending.length} ${pending.length === 1 ? 'change is' : 'changes are'} ready to go live.`}
+                {check === 'running' && "Waiting for the build check to finish. Refresh in a minute."}
+                {check === 'none' && 'Waiting for the build check to start. Refresh in a minute.'}
+                {check === 'failed' && "The last change didn't pass the build check, so it can't go live. Undo or fix it, then save again."}
+              </p>
+              <button class="btn btn-primary" style="align-self:flex-start" id="publish" type="button" disabled={!canPublish}><Icon name="publish" />Publish to the live site</button>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <h2 style="font-size:17px">Waiting to go live</h2>
+        {pending.length ? (
+          <div class="log">{pending.map((c) => <div><span>{c.message.replace(/ \(via editor, @[^)]+\)$/, '')}</span><span>{c.author} · {when(c.date)}</span></div>)}</div>
+        ) : <p class="note">Nothing. Everything you've saved is live.</p>}
+      </div>
+    </>
+  )}
+</Base>
+
+<script>
+  import { busy, showProblems } from '../scripts/editor';
+  const button = document.getElementById('publish') as HTMLButtonElement | null;
+  button?.addEventListener('click', async () => {
+    showProblems([]);
+    busy(button, true, 'Publishing…');
+    try {
+      const res = await fetch('/api/publish', { method: 'POST' });
+      const data = (await res.json()) as { ok: boolean; problems?: string[] };
+      if (!data.ok) throw new Error((data.problems ?? []).join(' '));
+      window.location.href = '/publish?published=1';
+    } catch (e) {
+      busy(button, false);
+      showProblems([(e as Error).message || "Couldn't publish. Try again in a moment."]);
+    }
+  });
+</script>

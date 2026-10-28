@@ -1,0 +1,30 @@
+{
+  "colours": {
+    "background": "#0C0C0F",
+    "surface": "#15151B",
+    "surfaceRaised": "#1D1D25",
+    "border": "#2A2A35",
+    "text": "#F5F5F7",
+    "textMuted": "#A3A3B2",
+    "accent": "#FFD43B",
+    "accentText": "#141107",
+    "success": "#4ADE9A",
+    "danger": "#FF6B7D"
+  },
+  "fonts": {
+    "heading": "Dela Gothic One",
+    "body": "Outfit"
+  },
+  "sizes": {
+    "headline": 64,
+    "section": 40,
+    "text": 17,
+    "small": 12,
+    "button": 16,
+    "buttonHeight": 52,
+    "radius": 14,
+    "lineHeight": 1.6,
+    "headingTracking": 0.5
+  },
+  "headingCapitals": false
+}

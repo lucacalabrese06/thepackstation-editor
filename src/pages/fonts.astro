@@ -1,0 +1,115 @@
+---
+import Base from '../layouts/Base.astro';
+import { loadThemePage } from '../lib/themePage';
+
+const page = await loadThemePage(Astro);
+---
+<Base title="Fonts and sizes" section="type">
+  <div class="head">
+    <div style="display:flex;flex-direction:column;gap:6px"><h1>Fonts and sizes</h1><p>How text, buttons and corners look across the whole website.</p></div>
+    {'pageData' in page && <div class="row"><button class="btn btn-ghost" id="reset" type="button">Reset to original</button><button class="btn btn-primary" id="save" type="button">Save</button></div>}
+  </div>
+  <div id="problems" class="problems" role="alert" hidden></div>
+  {'pageData' in page ? (
+    <>
+      <div class="split">
+        <form class="form" id="tform" novalidate></form>
+        <aside class="preview" aria-label="Preview">
+          <div class="row" style="justify-content:space-between"><span class="plabel">Preview</span>
+            <div class="seg" role="group" aria-label="Preview size"><button type="button" data-device="desktop" aria-pressed="true">Desktop</button><button type="button" data-device="phone" aria-pressed="false">Phone</button></div></div>
+          <div class="tp-wrap"><div class="tp" id="preview"></div></div>
+        </aside>
+      </div>
+      <script type="application/json" id="page-data" set:html={JSON.stringify(page.pageData)}></script>
+    </>
+  ) : <p class="loading-error" role="alert">{page.error}</p>}
+</Base>
+
+<script>
+  import { clone, save, esc, guardUnsaved } from '../scripts/editor';
+  import { themePreview } from '../scripts/themePreview';
+  import { HEADING_FONTS, BODY_FONTS, SIZE_LIMITS } from '../lib/validate';
+  import type { Theme, Sizes } from '../settings/types';
+
+  const ORIGINAL: Pick<Theme, 'fonts' | 'sizes' | 'headingCapitals'> = {
+    fonts: { heading: 'Dela Gothic One', body: 'Outfit' },
+    sizes: { headline: 64, section: 40, text: 17, small: 12, button: 16, buttonHeight: 52, radius: 14, lineHeight: 1.6, headingTracking: 0.5 },
+    headingCapitals: false,
+  };
+  const FONT_NOTES: Record<string, string> = {
+    'Dela Gothic One': 'chunky (original)', 'Bebas Neue': 'tall, condensed', 'Bricolage Grotesque': 'modern', Fredoka: 'rounded, playful',
+    Outfit: 'clean', 'DM Sans': 'neutral', Nunito: 'rounded', 'system-ui': "the phone's own font",
+  };
+
+  const raw = JSON.parse(document.getElementById('page-data')!.textContent!) as { data: Theme; sha: string; words: Parameters<typeof themePreview>[2] };
+  const t = clone(raw.data);
+  const start = JSON.stringify(t);
+  let device: 'desktop' | 'phone' = 'desktop';
+  guardUnsaved(() => JSON.stringify(t) !== start);
+
+  const form = document.getElementById('tform') as HTMLFormElement;
+  const preview = document.getElementById('preview')!;
+  const unit: Record<keyof Sizes, string> = { headline: 'px', section: 'px', text: 'px', small: 'px', button: 'px', buttonHeight: 'px', radius: 'px', lineHeight: '×', headingTracking: '%' };
+  const step: Partial<Record<keyof Sizes, number>> = { lineHeight: 0.05, headingTracking: 0.5, buttonHeight: 2 };
+  const hints: Partial<Record<keyof Sizes, string>> = {
+    headline: 'On phones it shrinks automatically to fit.',
+    text: 'Keep this at 16px or above so it is easy to read on a phone.',
+    buttonHeight: '44px or more is easy to tap.',
+    radius: '0 is square, 28 is very round.',
+  };
+
+  const select = (key: 'heading' | 'body', label: string, list: string[]) => `
+    <div class="field"><label for="t-${key}">${label}</label><select id="t-${key}" class="input" data-font="${key}">
+      ${list.map((f) => `<option value="${esc(f)}" ${t.fonts[key] === f ? 'selected' : ''} style="font-family:'${esc(f)}'">${esc(f === 'system-ui' ? 'Phone default' : f)} (${esc(FONT_NOTES[f] ?? '')})</option>`).join('')}
+    </select></div>`;
+  const slider = (key: keyof Sizes) => {
+    const [min, max, label] = SIZE_LIMITS[key];
+    return `<div class="ctrl"><label for="t-${key}">${esc(label)}</label><output id="o-${key}" for="t-${key}">${t.sizes[key]}${unit[key]}</output>
+      <input id="t-${key}" type="range" min="${min}" max="${max}" step="${step[key] ?? 1}" value="${t.sizes[key]}" data-size="${key}">
+      ${hints[key] ? `<span class="hint">${esc(hints[key]!)}</span>` : ''}</div>`;
+  };
+
+  function render() {
+    form.innerHTML = `
+      <h2>Fonts</h2>
+      <div class="grid2">${select('heading', 'Headings', HEADING_FONTS)}${select('body', 'Everything else', BODY_FONTS)}</div>
+      <label class="toggle"><input type="checkbox" id="t-caps" ${t.headingCapitals ? 'checked' : ''}>Headings in CAPITALS</label>
+      <div class="divider"></div><h2>Text sizes</h2>
+      ${(['headline', 'section', 'text', 'small', 'headingTracking', 'lineHeight'] as const).map(slider).join('')}
+      <div class="divider"></div><h2>Buttons and shapes</h2>
+      ${(['button', 'buttonHeight', 'radius'] as const).map(slider).join('')}`;
+    update();
+  }
+  function update() {
+    preview.innerHTML = themePreview(t, device, raw.words);
+    preview.style.maxWidth = device === 'phone' ? '300px' : '100%';
+  }
+
+  form.addEventListener('input', (e) => {
+    const el = e.target as HTMLInputElement;
+    if (el.dataset.font) t.fonts[el.dataset.font as 'heading' | 'body'] = el.value as never;
+    if (el.id === 't-caps') t.headingCapitals = el.checked;
+    if (el.dataset.size) {
+      const key = el.dataset.size as keyof Sizes;
+      t.sizes[key] = Number(el.value);
+      document.getElementById(`o-${key}`)!.textContent = `${el.value}${unit[key]}`;
+    }
+    update();
+  });
+  document.querySelector('.seg')?.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-device]');
+    if (!b) return;
+    device = b.dataset.device as typeof device;
+    document.querySelectorAll('[data-device]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    update();
+  });
+  document.getElementById('reset')?.addEventListener('click', () => {
+    t.fonts = clone(ORIGINAL.fonts);
+    t.sizes = clone(ORIGINAL.sizes);
+    t.headingCapitals = ORIGINAL.headingCapitals;
+    render();
+  });
+  document.getElementById('save')?.addEventListener('click', (e) => save('theme', t, raw.sha, 'Updated fonts and sizes', e.currentTarget as HTMLButtonElement));
+  form.addEventListener('submit', (e) => e.preventDefault());
+  render();
+</script>

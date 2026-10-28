@@ -1,0 +1,92 @@
+---
+import Base from '../layouts/Base.astro';
+import { load } from '../lib/server';
+import type { MenuItem, FooterColumn } from '../settings/types';
+
+const file = await load<{ links: Record<string, string>; headerMenu: MenuItem[]; footerMenu: FooterColumn[] }>(Astro, 'navigation');
+const pageData = 'data' in file ? { data: file.data, sha: file.sha } : null;
+---
+<Base title="Menus and links" section="menus">
+  <div class="head">
+    <div style="display:flex;flex-direction:column;gap:6px"><h1>Menus and links</h1><p>The menu at the top of the website, the footer links, and where buttons go.</p></div>
+    {pageData && <button class="btn btn-primary" id="save" type="button">Save</button>}
+  </div>
+  <div id="problems" class="problems" role="alert" hidden></div>
+  {pageData ? (
+    <>
+      <form class="form" id="header-list" novalidate style="max-width:820px"></form>
+      <form class="form" id="footer" novalidate style="max-width:820px"></form>
+      <form class="form" id="links" novalidate style="max-width:820px"></form>
+      <script type="application/json" id="page-data" set:html={JSON.stringify(pageData)}></script>
+    </>
+  ) : <p class="loading-error" role="alert">{'error' in file && file.error}</p>}
+</Base>
+
+<script>
+  import { clone, save, esc, guardUnsaved } from '../scripts/editor';
+  import { listEditor } from '../scripts/lists';
+  import type { MenuItem, FooterColumn } from '../settings/types';
+
+  type Nav = { links: Record<string, string>; headerMenu: MenuItem[]; footerMenu: FooterColumn[] };
+  const raw = JSON.parse(document.getElementById('page-data')!.textContent!) as { data: Nav; sha: string };
+  const n = clone(raw.data);
+  const start = JSON.stringify(n);
+  guardUnsaved(() => JSON.stringify(n) !== start);
+
+  const PAGES = 'Pages on the website: / (home), /locations, /gallery, /support. Add #contact to jump to the contact form, or ?topic=host to pre-pick a topic. Other websites start with https://';
+
+  listEditor(document.getElementById('header-list')!, n.headerMenu as unknown as Record<string, string>[], {
+    id: 'header', title: 'Top menu (bottom bar on phones)', itemName: 'menu item', max: 5, hint: 'Up to 5 items so it fits on a phone. ' + PAGES,
+    fields: [
+      { key: 'label', label: 'Label' },
+      { key: 'link', label: 'Goes to' },
+      { key: 'icon', label: 'Icon', options: [['home', 'House'], ['locations', 'Map pin'], ['gallery', 'Picture'], ['support', 'Question mark'], ['store', 'Shop'], ['mail', 'Envelope']] },
+    ],
+    blank: () => ({ label: '', link: '/', icon: 'home' }),
+  }, () => {});
+
+  const footer = document.getElementById('footer')!;
+  function renderFooter() {
+    footer.innerHTML = `<h2>Footer link columns</h2><p class="note">${esc(PAGES)}</p><div id="cols" style="display:flex;flex-direction:column;gap:14px"></div><button type="button" class="dashed" data-addcol>+ Add a column</button>`;
+    const cols = footer.querySelector('#cols')!;
+    n.footerMenu.forEach((col, ci) => {
+      const box = document.createElement('div');
+      box.className = 'list-item';
+      box.innerHTML = `<div class="field"><label for="col-${ci}">Column heading</label><input id="col-${ci}" class="input" data-col="${ci}" value="${esc(col.heading)}"></div><div data-links></div><button type="button" class="link-btn" style="align-self:flex-start;color:var(--bad)" data-delcol="${ci}">Remove this column</button>`;
+      cols.append(box);
+      listEditor(box.querySelector('[data-links]') as HTMLElement, col.links as unknown as Record<string, string>[], {
+        id: `col${ci}`, title: 'Links', itemName: 'link', fields: [{ key: 'label', label: 'Label' }, { key: 'link', label: 'Goes to' }], blank: () => ({ label: '', link: '/' }),
+      }, () => {});
+    });
+  }
+  footer.addEventListener('input', (e) => {
+    const el = e.target as HTMLInputElement;
+    if (el.dataset.col !== undefined) n.footerMenu[Number(el.dataset.col)].heading = el.value;
+  });
+  footer.addEventListener('click', (e) => {
+    const b = e.target as HTMLElement;
+    if (b.closest('[data-addcol]')) { n.footerMenu.push({ heading: '', links: [] }); renderFooter(); }
+    const del = b.closest<HTMLElement>('[data-delcol]');
+    if (del) { n.footerMenu.splice(Number(del.dataset.delcol), 1); renderFooter(); }
+  });
+  renderFooter();
+
+  const LINK_LABELS: Record<string, string> = {
+    home: 'Logo and "home" buttons', locations: '"Find a machine" buttons', gallery: '"See our machines" button', support: '"Support" buttons',
+    contactForm: '"Contact us" buttons', hostMachine: '"Host a machine" buttons', reportMachine: '"Report this machine" buttons',
+  };
+  const linksForm = document.getElementById('links')!;
+  linksForm.innerHTML = `<h2>Where buttons go</h2>` + Object.entries(n.links).map(([k, v]) => `
+    <div class="field"><label for="l-${k}">${esc(LINK_LABELS[k] ?? k)}</label><input id="l-${k}" class="input" data-link="${k}" value="${esc(v)}"></div>`).join('');
+  linksForm.addEventListener('input', (e) => {
+    const el = e.target as HTMLInputElement;
+    if (el.dataset.link) n.links[el.dataset.link] = el.value.trim();
+  });
+
+  for (const f of document.querySelectorAll('form')) f.addEventListener('submit', (e) => e.preventDefault());
+  document.getElementById('save')?.addEventListener('click', (e) => {
+    n.headerMenu = n.headerMenu.map((i) => ({ ...i, label: i.label.trim(), link: i.link.trim() }));
+    n.footerMenu = n.footerMenu.map((c) => ({ heading: c.heading.trim(), links: c.links.map((l) => ({ label: l.label.trim(), link: l.link.trim() })) }));
+    save('navigation', n, raw.sha, 'Updated menus and links', e.currentTarget as HTMLButtonElement);
+  });
+</script>
